@@ -4,36 +4,41 @@ moBRCA-net is an omics-level attention-based breast cancer subtype classificatio
 ![Figure](https://github.com/cbi-bioinfo/moBRCA-net/blob/main/fig1_v7.png?raw=true)
 
 ## Requirements
-* Tensorflow (>= 1.8.0)
-* Python (>= 2.7)
-* Python packages : numpy, pandas
+* Python >= 3.9
+* PyTorch >= 2.2 (CPU OK)
+* numpy >= 1.26, pandas, scikit-learn (for data prep)
 
 ## Usage
 Clone the repository or download source code files and prepare breast cancer multi-omics dataset including gene expression, DNA methylation, and microRNA expression.
 
-1. Edit **"run_moBRCA-net.sh"** file having multi-omics dataset files for model training and testing with subtype label for each sample. Modify each variable values in the bash file with filename for your own dataset. Each file shoudl contain the header and follow the format described as follows :
+### Quick start (data prep + train)
+1) Chuẩn bị dữ liệu thô:  
+   - `data/BRCA_mRNA_top.csv`, `data/BRCA_Methy_top.csv`, `data/BRCA_miRNA_top.csv` (cột đầu là feature, các cột sau là sample).  
+   - File nhãn `data/xxx_label.csv` (cột `Label` là số hoặc tên subtype, thứ tự dòng khớp thứ tự sample trong các file omics), hoặc `clinical.tsv` có nhãn.
 
-- ```train_X, test_X``` : File with a matrix or a data frame containing gene expression, DNA methylation beta value, and miRNA expression of features for model training and testing, where each row and column represent **sample** and **feature**, respectively. The order of the features should be as follows: (1) Gene, (2) CpG cluster, (3) microRNA. Example for dataset format is provided below.
-
+2) Tạo 4 file đầu vào và ghi số feature:
 ```
-A1BG,A1CF,...,A2ML1,cg000001,cg000002,...,cg000005,hsa-mir-1249,hsa-mir-1251,...,hsa-mir-221
-0.342,0.044,...,0.112,0.894,0.342,...,0.112,0.013,0.444,...,0.234
-...
+python prepare_data.py \
+  --label-path data/54814634_BRCA_label_num.csv \
+  --label-column Label \
+  --zscore \
+  --output-dir . \
+  --test-size 0.2 \
+  --top-gene 500 --top-cpg 500 --top-mirna 100
+```
+Kết quả: `train_X.csv`, `test_X.csv`, `train_Y.csv`, `test_Y.csv`, `feature_counts.txt` (num_gene/num_cpg/num_mirna).
+
+3) Cập nhật `run_moBRCA-net.sh` hoặc gọi trực tiếp:
+```
+# env tùy chọn để chạy nhanh hơn
+$env:EPOCHS=10; $env:BATCH_SIZE=64;
+python moBRCA-net.py train_X.csv train_Y.csv test_X.csv test_Y.csv \
+  500 500 100 results
 ```
 
-- ```train_Y, test_Y``` : File with a matrix or a data frame contatining subtype label for each sample, where each row represent **sample**. Subtype names used for training and testing should be included and users should label each subtype as 1 and 0 for others in the same order in training dataset to be matched. Example for data format is described below.
-
-```
-LumA,LumB,Her2,Basal,Normal
-1,0,0,0,0
-0,0,1,0,0
-0,1,0,0,0
-...
-```
-
-2. Use **"run_moBRCA-net.sh"** to classify subtypes in multi-omics dataset.
-
-3. You will get an output **"prediction.csv"** with classified subtypes for test dataset, and an output **"attn_score_eachOmics.csv"** with the relative importance values (attention scores) measured by moBRCA-net for each omics features.
+4) Đầu ra ở thư mục `results/`:  
+   - `prediction.csv`, `label.csv`  
+   - `attn_score_gene.csv`, `attn_score_methyl.csv`, `attn_score_mirna.csv`
 
 ## Conditional variational autoencoder for data augmentation used in the experiment
 * cvae_generator.py
