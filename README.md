@@ -13,27 +13,26 @@ Clone the repository or download source code files and prepare breast cancer mul
 
 ### Quick start (data prep + train)
 1) Chuẩn bị dữ liệu thô:  
-   - `data/BRCA_mRNA_top.csv`, `data/BRCA_Methy_top.csv`, `data/BRCA_miRNA_top.csv` (cột đầu là feature, các cột sau là sample).  
+   - `data/BRCA_mRNA_top.csv`, `data/BRCA_Methy_top.csv`, `data/BRCA_miRNA_top.csv` (các hàng là feature, các cột là sample).  
    - File nhãn `data/xxx_label.csv` (cột `Label` là số hoặc tên subtype, thứ tự dòng khớp thứ tự sample trong các file omics), hoặc `clinical.tsv` có nhãn.
 
 2) Tạo 4 file đầu vào và ghi số feature:
 ```
-python prepare_data.py \
-  --label-path data/54814634_BRCA_label_num.csv \
-  --label-column Label \
-  --zscore \
-  --output-dir . \
-  --test-size 0.2 \
-  --top-gene 500 --top-cpg 500 --top-mirna 100
+  python prepare_data.py \
+    --label-path data/54814634_BRCA_label_num.csv \
+    --label-column Label \
+    --zscore \
+    --output-dir . \
+    --test-size 0.2 \
+    --top-gene 1000 --top-cpg 1000 --top-mirna 100
 ```
 Kết quả: `train_X.csv`, `test_X.csv`, `train_Y.csv`, `test_Y.csv`, `feature_counts.txt` (num_gene/num_cpg/num_mirna).
 
 3) Cập nhật `run_moBRCA-net.sh` hoặc gọi trực tiếp:
 ```
 # env tùy chọn để chạy nhanh hơn
-$env:EPOCHS=10; $env:BATCH_SIZE=64;
-python moBRCA-net.py train_X.csv train_Y.csv test_X.csv test_Y.csv \
-  500 500 100 results
+$env:EPOCHS=50; $env:BATCH_SIZE=64;
+python moBRCA-net.py train_X.csv train_Y.csv test_X.csv test_Y.csv 500 500 100 results
 ```
 
 4) Đầu ra ở thư mục `results/`:  

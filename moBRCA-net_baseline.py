@@ -5,8 +5,8 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from contrast import Contrast
 from sklearn.metrics import f1_score, recall_score
+
 
 
 class MultiOmicsDataset(Dataset):
@@ -35,12 +35,7 @@ class MultiOmicsDataset(Dataset):
 
 class OmicsAttention(nn.Module):
     """
-    Gần tương đương attention() trong moBRCA-net TF:
-    - Mỗi feature có 1 embedding vector.
-    - f_e = x * emb
-    - Từ f_e sinh:
-        + f_x: biểu diễn feature-level
-        + trọng số attention theo feature
+    Feature-level attention cho từng omics.
     """
     def __init__(self, n_features, n_embedding=128, n_proj=64, dropout=0.2):
         super().__init__()
@@ -48,14 +43,11 @@ class OmicsAttention(nn.Module):
         self.n_embedding = n_embedding
         self.n_proj = n_proj
 
-        # Embedding cho từng feature: (n_features, n_embedding)
         self.emb = nn.Parameter(torch.randn(n_features, n_embedding))
 
-        # Nhánh tạo f_x
         self.fc_fx = nn.Linear(n_embedding, n_proj)
         self.bn_fx = nn.BatchNorm1d(n_proj)
 
-        # Nhánh tạo attention logits
         self.fc_a1 = nn.Linear(n_embedding, n_features)
         self.bn_a1 = nn.BatchNorm1d(n_features)
         self.fc_a2 = nn.Linear(n_features, 1)
@@ -66,40 +58,33 @@ class OmicsAttention(nn.Module):
     def forward(self, x):
         """
         x: (B, n_features)
-        return:
-            new_rep: (B, n_proj)
-            attn: (B, n_features)
+        return new_rep: (B, n_proj), attn: (B, n_features)
         """
         B, N = x.shape
         assert N == self.n_features
 
-        # (B, N, E)
-        emb = self.emb.unsqueeze(0).expand(B, -1, -1)
-        fe = x.unsqueeze(2) * emb
+        emb = self.emb.unsqueeze(0).expand(B, -1, -1)  # (B, N, E)
+        fe = x.unsqueeze(2) * emb                      # (B, N, E)
 
-        # f_x path
         fx = fe.reshape(B * N, self.n_embedding)
         fx = self.fc_fx(fx)
         fx = self.bn_fx(fx)
         fx = self.tanh(fx)
         fx = self.dropout(fx)
-        fx = fx.view(B, N, self.n_proj)  # (B, N, P)
+        fx = fx.view(B, N, self.n_proj)
 
-        # attention path
         fa1 = fe.reshape(B * N, self.n_embedding)
         fa1 = self.fc_a1(fa1)
         fa1 = self.bn_a1(fa1)
         fa1 = self.tanh(fa1)
         fa1 = self.dropout(fa1)
-        fa1 = fa1.view(B, N, self.n_features)  # (B, N, N)
+        fa1 = fa1.view(B, N, self.n_features)
 
-        fa2 = self.fc_a2(fa1)  # (B, N, 1)
+        fa2 = self.fc_a2(fa1)          # (B, N, 1)
         attn_logits = fa2.view(B, N)
-        attn = torch.softmax(attn_logits, dim=1)  # (B, N)
+        attn = torch.softmax(attn_logits, dim=1)
 
-        # weighted sum của f_x
-        new_rep = (attn.unsqueeze(2) * fx).sum(dim=1)  # (B, P)
-
+        new_rep = (attn.unsqueeze(2) * fx).sum(dim=1)  # (B, n_proj)
         return new_rep, attn
 
 
@@ -129,17 +114,6 @@ class MoBRCANetTorch(nn.Module):
         self.elu = nn.ELU()
         self.dropout = nn.Dropout(dropout)
         self.fc_out = nn.Linear(n_sm_h2, n_classes)
-
-    # get_omics_embeddings   
-    def get_omics_embeddings(self, gene_x, methyl_x, mirna_x):
-        """
-        Trả về 3 embedding của Gene, Methyl, miRNA
-        (để dùng trong contrastive learning)
-        """
-        rep_gene, _ = self.gene_attn(gene_x)
-        rep_methyl, _ = self.methyl_attn(methyl_x)
-        rep_mirna, _ = self.mirna_attn(mirna_x)
-        return rep_gene, rep_methyl, rep_mirna
 
     def forward(self, gene_x, methyl_x, mirna_x):
         rep_gene, attn_gene = self.gene_attn(gene_x)
@@ -171,7 +145,6 @@ def train_and_eval(train_ds,
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-    # test toàn bộ 1 lần để lấy attention đầy đủ
     test_loader = DataLoader(test_ds, batch_size=len(test_ds), shuffle=False)
 
     model = MoBRCANetTorch(
@@ -184,50 +157,6 @@ def train_and_eval(train_ds,
 
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
-    # ===============================
-    # (1) PRE-TRAIN BẰNG CONTRASTIVE LEARNING (PHASE 1)
-    # ===============================
-
-    # Lấy toàn bộ training để pretrain (không theo batch)
-    gene_all = train_ds.gene_x.to(device)
-    methyl_all = train_ds.methyl_x.to(device)
-    mirna_all = train_ds.mirna_x.to(device)
-    y_all = train_ds.y.to(device)
-
-    # Tạo matrix POS (supervised positive pairs)
-    num_samples = y_all.shape[0]
-    pos = (y_all.unsqueeze(1) == y_all.unsqueeze(0)).float()
-
-
-    # Contrastive Loss
-    contrast_criterion = Contrast(hidden_dim=64, tau=0.5, lam=0.5).to(device)
-
-    # Optimizer chỉ cho encoder
-    contrast_optimizer = torch.optim.Adam(
-        list(model.gene_attn.parameters()) +
-        list(model.methyl_attn.parameters()) +
-        list(model.mirna_attn.parameters()),
-        lr=1e-3
-    )
-
-    contrast_epochs = 50   # số epoch tùy bạn
-
-    print("=== START CONTRASTIVE PRETRAINING ===")
-    for epoch in range(contrast_epochs):
-        model.train()
-        contrast_optimizer.zero_grad()
-
-        rep_gene, rep_methyl, rep_mirna = model.get_omics_embeddings(
-            gene_all, methyl_all, mirna_all
-        )
-
-        loss_contrast = contrast_criterion(rep_gene, rep_methyl, rep_mirna, pos)
-        loss_contrast.backward()
-        contrast_optimizer.step()
-
-        print(f"[CL] Epoch {epoch:03d} | Loss = {loss_contrast.item():.4f}")
-    print("=== END CONTRASTIVE PRETRAINING ===\n")
-
 
     best_acc = 0.0
     best_f1 = 0.0         # <--- thêm
@@ -267,7 +196,8 @@ def train_and_eval(train_ds,
         train_loss = running_loss / running_total
         train_acc = running_correct / running_total
 
-         # --- eval trên test ---
+        # --- eval trên test ---
+ # --- eval trên test ---
         model.eval()
         with torch.no_grad():
             for gene_x, methyl_x, mirna_x, y in test_loader:
@@ -312,7 +242,6 @@ def train_and_eval(train_ds,
             f"Best Test acc: {best_acc:.6f}"
         )
 
-
     # --- lưu kết quả ---
     if best_pred is not None:
         np.savetxt(os.path.join(res_dir, "prediction.csv"),
@@ -350,13 +279,11 @@ def main():
     n_mirna = int(sys.argv[7])
     res_dir = sys.argv[8]
 
-    # read csv
     x_train = pd.read_csv(train_x_path, dtype=np.float32)
     x_test = pd.read_csv(test_x_path, dtype=np.float32)
     y_train = pd.read_csv(train_y_path, dtype=np.float32).values
     y_test = pd.read_csv(test_y_path, dtype=np.float32).values
 
-    # tách theo thứ tự [Gene | CpG | miRNA]
     x_gene_train = x_train.iloc[:, :n_gene].values
     x_gene_test = x_test.iloc[:, :n_gene].values
 
