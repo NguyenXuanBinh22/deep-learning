@@ -294,11 +294,18 @@ def train_and_eval(train_ds,
                 test_f1 = f1_score(y_true_np, y_pred_np, average="macro")
                 # ============================================
 
-                # lưu best theo ACC (hoặc bạn có thể đổi sang F1 nếu muốn)
+                # lưu best theo ACC, nếu ACC bằng nhau thì chọn F1 cao hơn
+                should_update = False
                 if test_acc > best_acc:
+                    should_update = True
+                elif test_acc == best_acc and test_f1 > best_f1:
+                    # Tie-breaker: nếu accuracy bằng nhau, chọn F1 cao hơn
+                    should_update = True
+                
+                if should_update:
                     best_acc = test_acc
-                    best_f1 = test_f1          # <--- lưu lại
-                    best_recall = test_recall  # <--- lưu lại
+                    best_f1 = test_f1
+                    best_recall = test_recall
                     best_pred = y_pred_np
                     best_label = y_true_np
                     best_attn_gene = attn_gene.cpu().numpy()
