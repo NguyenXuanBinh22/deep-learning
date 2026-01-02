@@ -19,7 +19,7 @@ $env:EPOCHS=50; $env:BATCH_SIZE=64; $env:LR=1e-2; python run_kfold.py --base-dir
 ### Model Baseline:
 
 ```powershell
-$env:EPOCHS=50; $env:BATCH_SIZE=64; $env:LR=1e-3; python run_kfold_baseline.py --base-dir ./kfold_output --k-folds 5 --epochs 50 --batch-size 64 --lr 1e-3
+$env:EPOCHS=50; $env:BATCH_SIZE=64; $env:LR=1e-2; python run_kfold_baseline.py --base-dir ./kfold_output --k-folds 5 --epochs 50 --batch-size 64 --lr 1e-2
 ```
 
 ## Hoặc chạy từng bước chi tiết:

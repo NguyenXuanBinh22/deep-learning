@@ -197,7 +197,7 @@ def train_and_eval(train_ds,
         train_acc = running_correct / running_total
 
         # --- eval trên test ---
- # --- eval trên test ---
+        # --- eval trên test ---
         model.eval()
         with torch.no_grad():
             for gene_x, methyl_x, mirna_x, y in test_loader:
